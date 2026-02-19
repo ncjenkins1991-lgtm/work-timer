@@ -555,11 +555,14 @@ const MODES = {
 // ─────────────────────────────────────────────────────────
 //  STATE
 // ─────────────────────────────────────────────────────────
-let mode          = 'sprint';
-let timeRemaining = MODES.sprint.duration;
-let isRunning     = false;
-let intervalId    = null;
-let audioCtx      = null;
+let mode            = 'sprint';
+let timeRemaining   = MODES.sprint.duration;
+let isRunning       = false;
+let intervalId      = null;
+let audioCtx        = null;
+// Wall-clock references — immune to tab throttling
+let startTimestamp  = null;   // Date.now() when timer was last (re)started
+let timeAtStart     = null;   // timeRemaining at that moment
 let quoteIdx      = 0;
 
 const STORAGE_KEY = 'opTimer__' + new Date().toDateString();
@@ -610,27 +613,39 @@ $modeBtns.forEach(btn => {
 // ─────────────────────────────────────────────────────────
 //  TIMER CONTROLS
 // ─────────────────────────────────────────────────────────
+function tick() {
+  if (!isRunning) return;
+  const elapsed = Math.floor((Date.now() - startTimestamp) / 1000);
+  timeRemaining = Math.max(0, timeAtStart - elapsed);
+  updateDisplay();
+  updateProgress();
+  if (timeRemaining <= 0) timerFinished();
+}
+
 function startTimer() {
   if (timeRemaining <= 0 || isRunning) return;
-  isRunning = true;
+  isRunning        = true;
+  startTimestamp   = Date.now();
+  timeAtStart      = timeRemaining;
   $startBtn.disabled = true;
   $pauseBtn.disabled = false;
   $modeBtns.forEach(b => b.disabled = true);
 
-  intervalId = setInterval(() => {
-    timeRemaining--;
-    updateDisplay();
-    updateProgress();
-    if (timeRemaining <= 0) timerFinished();
-  }, 1000);
+  // Poll 4× per second so we catch up quickly after tab restore
+  intervalId = setInterval(tick, 250);
 }
 
 function pauseTimer() {
   if (!isRunning) return;
-  isRunning = false;
+  // Snap timeRemaining to wall-clock truth before pausing
+  const elapsed = Math.floor((Date.now() - startTimestamp) / 1000);
+  timeRemaining  = Math.max(0, timeAtStart - elapsed);
+  isRunning      = false;
   clearInterval(intervalId);
   $startBtn.disabled = false;
   $pauseBtn.disabled = true;
+  updateDisplay();
+  updateProgress();
 }
 
 function resetTimer() {
@@ -821,6 +836,12 @@ setInterval(newQuote, 4 * 60 * 1000);
 $startBtn.addEventListener('click', startTimer);
 $pauseBtn.addEventListener('click', pauseTimer);
 $resetBtn.addEventListener('click', resetTimer);
+
+// Sync immediately when tab becomes visible again (browsers throttle
+// setInterval in background tabs, so we recalculate from wall clock)
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden && isRunning) tick();
+});
 
 // ─────────────────────────────────────────────────────────
 //  INIT
