@@ -1,0 +1,834 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>Operator Sprint Timer</title>
+  <style>
+    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+    :root {
+      --col-sprint: #22c55e;
+      --col-break:  #f59e0b;
+      --col-snack:  #ef4444;
+      --bg:         #0a0a0a;
+      --surface:    #111111;
+      --border:     #1f1f1f;
+      --text-muted: #555;
+      --text-dim:   #888;
+      --text:       #d4d4d4;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 24px 16px 48px;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* ── HEADER ───────────────────────────────────── */
+    .app-title {
+      font-size: 0.7rem;
+      letter-spacing: 0.35em;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      margin-bottom: 28px;
+      margin-top: 8px;
+    }
+
+    /* ── MODE SELECTOR ────────────────────────────── */
+    .mode-buttons {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 36px;
+      flex-wrap: wrap;
+      justify-content: center;
+    }
+
+    .mode-btn {
+      padding: 9px 18px;
+      border: 1.5px solid var(--border);
+      background: transparent;
+      color: var(--text-muted);
+      cursor: pointer;
+      font-size: 0.72rem;
+      font-weight: 600;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      border-radius: 5px;
+      transition: border-color 0.2s, color 0.2s, background 0.2s;
+      white-space: nowrap;
+    }
+    .mode-btn:hover:not(:disabled) { border-color: #444; color: var(--text); }
+    .mode-btn:disabled { opacity: 0.4; cursor: default; }
+
+    .mode-btn[data-mode="sprint"].active {
+      border-color: var(--col-sprint);
+      color: var(--col-sprint);
+      background: rgba(34, 197, 94, 0.08);
+    }
+    .mode-btn[data-mode="break"].active {
+      border-color: var(--col-break);
+      color: var(--col-break);
+      background: rgba(245, 158, 11, 0.08);
+    }
+    .mode-btn[data-mode="snack"].active {
+      border-color: var(--col-snack);
+      color: var(--col-snack);
+      background: rgba(239, 68, 68, 0.08);
+    }
+
+    /* ── TIMER ────────────────────────────────────── */
+    .timer-wrap {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      margin-bottom: 8px;
+    }
+
+    #timerDisplay {
+      font-size: clamp(88px, 23vw, 168px);
+      font-weight: 800;
+      font-variant-numeric: tabular-nums;
+      font-family: 'Courier New', 'Lucida Console', monospace;
+      letter-spacing: 0.03em;
+      line-height: 1;
+      color: var(--col-sprint);
+      transition: color 0.3s;
+    }
+
+    #timerDisplay.col-sprint { color: var(--col-sprint); }
+    #timerDisplay.col-break  { color: var(--col-break);  }
+    #timerDisplay.col-snack  { color: var(--col-snack);  }
+
+    @keyframes timerPulse {
+      0%   { opacity: 1; }
+      50%  { opacity: 0.25; }
+      100% { opacity: 1; }
+    }
+    #timerDisplay.finished { animation: timerPulse 0.7s ease-in-out infinite; }
+
+    /* Progress bar */
+    .progress-track {
+      width: min(360px, 90vw);
+      height: 3px;
+      background: var(--border);
+      border-radius: 2px;
+      margin-top: 14px;
+      overflow: hidden;
+    }
+    .progress-fill {
+      height: 100%;
+      width: 100%;
+      border-radius: 2px;
+      background: var(--col-sprint);
+      transform-origin: left;
+      transition: transform 0.5s linear, background 0.3s;
+    }
+
+    .mode-label {
+      font-size: 0.75rem;
+      letter-spacing: 0.3em;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      margin-top: 14px;
+    }
+
+    /* ── CONTROLS ─────────────────────────────────── */
+    .controls {
+      display: flex;
+      gap: 12px;
+      margin-top: 28px;
+      margin-bottom: 36px;
+    }
+
+    .ctrl-btn {
+      padding: 13px 30px;
+      border: none;
+      border-radius: 6px;
+      font-size: 0.85rem;
+      font-weight: 700;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      cursor: pointer;
+      transition: opacity 0.15s, transform 0.1s;
+    }
+    .ctrl-btn:active { transform: scale(0.95); }
+    .ctrl-btn:disabled { opacity: 0.35; cursor: default; transform: none; }
+
+    #startBtn  { background: var(--col-sprint); color: #000; }
+    #pauseBtn  { background: var(--surface); color: var(--text); border: 1.5px solid #2a2a2a; }
+    #resetBtn  { background: var(--surface); color: var(--text-dim); border: 1.5px solid #222; }
+
+    /* ── QUOTE ────────────────────────────────────── */
+    .quote-box {
+      max-width: 560px;
+      width: 100%;
+      text-align: center;
+      padding: 20px 24px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--surface);
+      margin-bottom: 36px;
+      min-height: 80px;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+    }
+
+    .quote-text {
+      font-size: 0.9rem;
+      line-height: 1.65;
+      color: #9a9a9a;
+      font-style: italic;
+      margin-bottom: 10px;
+    }
+
+    .quote-author {
+      font-size: 0.68rem;
+      letter-spacing: 0.22em;
+      text-transform: uppercase;
+      color: var(--text-muted);
+    }
+
+    /* ── STATS ────────────────────────────────────── */
+    .panel {
+      width: 100%;
+      max-width: 560px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 20px;
+      margin-bottom: 16px;
+    }
+
+    .panel-title {
+      font-size: 0.65rem;
+      letter-spacing: 0.32em;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      margin-bottom: 18px;
+    }
+
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 10px;
+    }
+
+    .stat-item {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 10px 4px;
+      border-radius: 6px;
+      background: #161616;
+    }
+
+    .stat-num {
+      font-size: 2.2rem;
+      font-weight: 800;
+      font-family: 'Courier New', monospace;
+      line-height: 1;
+    }
+
+    .stat-label {
+      font-size: 0.6rem;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      margin-top: 5px;
+      text-align: center;
+    }
+
+    .stat-item.s-sprints  .stat-num { color: var(--col-sprint); }
+    .stat-item.s-minutes  .stat-num { color: var(--col-sprint); }
+    .stat-item.s-snacks   .stat-num { color: var(--col-snack);  }
+    .stat-item.s-breaks   .stat-num { color: var(--col-break);  }
+
+    /* ── LOG ──────────────────────────────────────── */
+    .log-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 16px;
+    }
+
+    .btn-reset-log {
+      font-size: 0.62rem;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      background: transparent;
+      border: 1px solid #222;
+      padding: 5px 10px;
+      border-radius: 4px;
+      cursor: pointer;
+      transition: color 0.2s, border-color 0.2s;
+    }
+    .btn-reset-log:hover { color: var(--text); border-color: #444; }
+
+    .log-list {
+      list-style: none;
+      max-height: 220px;
+      overflow-y: auto;
+    }
+    .log-list::-webkit-scrollbar { width: 3px; }
+    .log-list::-webkit-scrollbar-track { background: transparent; }
+    .log-list::-webkit-scrollbar-thumb { background: #2a2a2a; border-radius: 2px; }
+
+    .log-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 9px 0;
+      border-bottom: 1px solid #181818;
+      font-size: 0.8rem;
+    }
+    .log-item:last-child { border-bottom: none; }
+
+    .log-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+
+    .log-type  { flex: 1; color: var(--text); }
+    .log-dur   { color: var(--text-muted); font-size: 0.72rem; margin-left: 4px; }
+    .log-time  { color: var(--text-muted); font-family: 'Courier New', monospace; font-size: 0.72rem; }
+
+    .log-empty {
+      color: #333;
+      font-size: 0.8rem;
+      text-align: center;
+      padding: 24px 0;
+    }
+
+    /* ── RESPONSIVE ───────────────────────────────── */
+    @media (max-width: 420px) {
+      .stats-grid { grid-template-columns: repeat(2, 1fr); }
+      .controls { gap: 8px; }
+      .ctrl-btn { padding: 12px 18px; font-size: 0.78rem; letter-spacing: 0.12em; }
+    }
+  </style>
+</head>
+<body>
+
+  <p class="app-title">Operator Sprint Timer</p>
+
+  <!-- MODE SELECTOR -->
+  <div class="mode-buttons">
+    <button class="mode-btn active" data-mode="sprint">Sprint</button>
+    <button class="mode-btn" data-mode="break">Break</button>
+    <button class="mode-btn" data-mode="snack">Exercise Snack</button>
+  </div>
+
+  <!-- TIMER -->
+  <div class="timer-wrap">
+    <div id="timerDisplay" class="col-sprint">40:00</div>
+    <div class="progress-track">
+      <div class="progress-fill" id="progressFill"></div>
+    </div>
+    <div class="mode-label" id="modeLabel">40-Minute Sprint</div>
+  </div>
+
+  <!-- CONTROLS -->
+  <div class="controls">
+    <button class="ctrl-btn" id="startBtn">Start</button>
+    <button class="ctrl-btn" id="pauseBtn" disabled>Pause</button>
+    <button class="ctrl-btn" id="resetBtn">Reset</button>
+  </div>
+
+  <!-- QUOTE -->
+  <div class="quote-box">
+    <div class="quote-text" id="quoteText"></div>
+    <div class="quote-author" id="quoteAuthor"></div>
+  </div>
+
+  <!-- STATS -->
+  <div class="panel">
+    <div class="panel-title">Today's Performance</div>
+    <div class="stats-grid">
+      <div class="stat-item s-sprints">
+        <div class="stat-num" id="statSprints">0</div>
+        <div class="stat-label">Sprints</div>
+      </div>
+      <div class="stat-item s-minutes">
+        <div class="stat-num" id="statMinutes">0</div>
+        <div class="stat-label">Sprint Min</div>
+      </div>
+      <div class="stat-item s-snacks">
+        <div class="stat-num" id="statSnacks">0</div>
+        <div class="stat-label">Ex Snacks</div>
+      </div>
+      <div class="stat-item s-breaks">
+        <div class="stat-num" id="statBreaks">0</div>
+        <div class="stat-label">Breaks</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- LOG -->
+  <div class="panel">
+    <div class="log-header">
+      <div class="panel-title" style="margin-bottom:0">Session Log</div>
+      <button class="btn-reset-log" id="resetLogBtn">Reset Daily Log</button>
+    </div>
+    <ul class="log-list" id="logList">
+      <li class="log-empty">No sessions completed yet.</li>
+    </ul>
+  </div>
+
+<script>
+// ─────────────────────────────────────────────────────────
+//  QUOTES
+// ─────────────────────────────────────────────────────────
+const QUOTES = [
+  // Jocko Willink
+  { text: "Discipline equals freedom.", author: "Jocko Willink" },
+  { text: "Get up. Get after it.", author: "Jocko Willink" },
+  { text: "Don't count on motivation. Count on discipline.", author: "Jocko Willink" },
+  { text: "Good. Now get back to work.", author: "Jocko Willink" },
+  { text: "If you want to be tougher mentally, it is simple: be tougher. Don't meditate on it.", author: "Jocko Willink" },
+  { text: "Prioritize and execute. Relax, look around, make a call.", author: "Jocko Willink" },
+  { text: "You must own everything in your world. There is no one else to blame.", author: "Jocko Willink" },
+  { text: "Leading people is the most challenging and, therefore, the most gratifying undertaking you can ever attempt.", author: "Jocko Willink" },
+  { text: "Default: aggressive.", author: "Jocko Willink" },
+  { text: "Detach from the immediate problem. Look around. Reassess. Decide.", author: "Jocko Willink" },
+  { text: "When things go wrong — and they will — don't panic. Identify the highest priority task and execute.", author: "Jocko Willink" },
+  { text: "The best leaders don't just take extreme ownership of their own job — they take ownership of problems above and below.", author: "Jocko Willink" },
+  { text: "Cover and move. Simplicity. Prioritize and execute. Decentralized command.", author: "Jocko Willink" },
+  { text: "You have to operate where you're at, with what you have.", author: "Jocko Willink" },
+
+  // Marcus Aurelius
+  { text: "You have power over your mind, not outside events. Realize this, and you will find strength.", author: "Marcus Aurelius" },
+  { text: "The impediment to action advances action. What stands in the way becomes the way.", author: "Marcus Aurelius" },
+  { text: "Waste no more time arguing about what a good man should be. Be one.", author: "Marcus Aurelius" },
+  { text: "If it is not right, do not do it. If it is not true, do not say it.", author: "Marcus Aurelius" },
+  { text: "Think of yourself as dead. You have lived your life. Now take what's left and live it properly.", author: "Marcus Aurelius" },
+  { text: "Very little is needed to make a happy life; it is all within yourself, in your way of thinking.", author: "Marcus Aurelius" },
+  { text: "Never let the future disturb you. You will meet it, if you have to, with the same weapons of reason which today arm you against the present.", author: "Marcus Aurelius" },
+  { text: "It is not death that a man should fear, but he should fear never beginning to live.", author: "Marcus Aurelius" },
+  { text: "Do what nature requires. Get moving right away if possible; don't look around to see if people will know about it.", author: "Marcus Aurelius" },
+  { text: "Receive without conceit. Release without struggle.", author: "Marcus Aurelius" },
+  { text: "When you wake up in the morning, tell yourself: the people I deal with today will be meddling, ungrateful, arrogant, dishonest, jealous and surly. But I have seen the beauty of good and the ugliness of evil, and have recognized that the wrongdoer has a nature related to my own.", author: "Marcus Aurelius" },
+  { text: "Confine yourself to the present.", author: "Marcus Aurelius" },
+  { text: "You have a body and a purpose. Use both — fully, without hesitation.", author: "Marcus Aurelius" },
+  { text: "Perform every act as if it were your last.", author: "Marcus Aurelius" },
+  { text: "It is the mark of an educated mind to rest satisfied with the degree of precision which the nature of the subject admits.", author: "Marcus Aurelius" },
+  { text: "How much more harmful are the consequences of anger and grief than the circumstances that aroused them.", author: "Marcus Aurelius" },
+  { text: "Begin — to begin is half the work. Let half still remain; again begin this, and thou wilt have finished.", author: "Marcus Aurelius" },
+  { text: "Loss is nothing else but change, and change is Nature's delight.", author: "Marcus Aurelius" },
+
+  // Julius Caesar
+  { text: "I came. I saw. I conquered.", author: "Julius Caesar" },
+  { text: "Men willingly believe what they wish to believe.", author: "Julius Caesar" },
+  { text: "It is easier to find men who will volunteer to die, than to find those who are willing to endure pain with patience.", author: "Julius Caesar" },
+  { text: "In war, events of importance are the result of trivial causes.", author: "Julius Caesar" },
+  { text: "Experience is the teacher of all things.", author: "Julius Caesar" },
+  { text: "No one is so brave that he is not disturbed by something unexpected.", author: "Julius Caesar" },
+  { text: "As a rule, men worry more about what they can't see than about what they can.", author: "Julius Caesar" },
+  { text: "Speed is the essence of war. Take advantage of the enemy's unpreparedness.", author: "Julius Caesar" },
+  { text: "I would rather be first in a village than second in Rome.", author: "Julius Caesar" },
+  { text: "In the end, it is impossible not to become what others believe you are.", author: "Julius Caesar" },
+  { text: "Men in general are quick to believe that which they wish to be true.", author: "Julius Caesar" },
+
+  // Brain Callouses / David Goggins
+  { text: "Build callouses on your brain, just like you build callouses on your hands. Callous your mind.", author: "David Goggins" },
+  { text: "You are in danger of living a life so comfortable and soft that you will die without ever realizing your true potential.", author: "David Goggins" },
+  { text: "Don't stop when you're tired. Stop when you're done.", author: "David Goggins" },
+  { text: "Suffering is the true test of life.", author: "David Goggins" },
+  { text: "Motivation is crap. When you're driven, whatever is in front of you will get destroyed.", author: "David Goggins" },
+  { text: "The most important conversation is the one you have with yourself.", author: "David Goggins" },
+  { text: "We live in a world where mediocrity is often celebrated. Rise above it.", author: "David Goggins" },
+  { text: "Stay hard.", author: "David Goggins" },
+  { text: "We all have the ability to come from nothing to something.", author: "David Goggins" },
+  { text: "Pain unlocks a secret doorway in the mind, one that leads to both peak performance and beautiful silence.", author: "David Goggins" },
+  { text: "You will never learn from people if you always tap out when it gets difficult.", author: "David Goggins" },
+  { text: "The only way to grow is to push past the boundaries of what you think is possible.", author: "David Goggins" },
+  { text: "Forty percent. When your mind is screaming quit, you've only used forty percent of your capacity.", author: "David Goggins" },
+  { text: "Uncommon amongst uncommon. That's what you're after.", author: "David Goggins" },
+  { text: "If you can get through doing things that you hate to do, on the other side is greatness.", author: "David Goggins" },
+
+  // Seneca
+  { text: "Begin at once to live, and count each separate day as a separate life.", author: "Seneca" },
+  { text: "We suffer more in imagination than in reality.", author: "Seneca" },
+  { text: "Luck is what happens when preparation meets opportunity.", author: "Seneca" },
+  { text: "He who is brave is free.", author: "Seneca" },
+  { text: "Difficulties strengthen the mind as labor does the body.", author: "Seneca" },
+  { text: "It is not that I'm so smart. I stay with the questions much longer.", author: "Seneca" },
+  { text: "Associate with people who are likely to improve you.", author: "Seneca" },
+  { text: "No man was ever wise by chance.", author: "Seneca" },
+  { text: "Omnia, Lucili, aliena sunt, tempus tantum nostrum est. — Everything is alien to us, Lucilius; time alone is ours.", author: "Seneca" },
+
+  // Sun Tzu
+  { text: "Opportunities multiply as they are seized.", author: "Sun Tzu" },
+  { text: "In the midst of chaos, there is also opportunity.", author: "Sun Tzu" },
+  { text: "Victorious warriors win first and then go to war. Defeated warriors go to war first and then seek to win.", author: "Sun Tzu" },
+  { text: "Supreme excellence consists in breaking the enemy's resistance without fighting.", author: "Sun Tzu" },
+  { text: "Move swift as the wind. Stand firm as a mountain.", author: "Sun Tzu" },
+  { text: "There is no instance of a nation benefiting from prolonged warfare.", author: "Sun Tzu" },
+  { text: "The general who wins the battle makes many calculations before the battle is fought.", author: "Sun Tzu" },
+
+  // Steven Pressfield
+  { text: "The professional shows up every day. Inspired or not.", author: "Steven Pressfield" },
+  { text: "Resistance is felt as fear. The more important a call to action is to our soul's evolution, the more Resistance we will feel toward pursuing it.", author: "Steven Pressfield" },
+  { text: "Are you a pro or an amateur? Professionals do it even when they don't feel like it.", author: "Steven Pressfield" },
+  { text: "The enemy is Resistance. It is internal. It is the greatest single obstacle to achievement.", author: "Steven Pressfield" },
+
+  // Aristotle / Socrates / Epictetus
+  { text: "We are what we repeatedly do. Excellence, then, is not an act, but a habit.", author: "Aristotle" },
+  { text: "Well begun is half done.", author: "Aristotle" },
+  { text: "No man has the right to be an amateur in the matter of physical training.", author: "Socrates" },
+  { text: "It's not what happens to you, but how you react to it that matters.", author: "Epictetus" },
+  { text: "Make the best use of what is in your power, and take the rest as it happens.", author: "Epictetus" },
+  { text: "First say to yourself what you would be; and then do what you have to do.", author: "Epictetus" },
+  { text: "Seek not the good in external things; seek it in yourself.", author: "Epictetus" },
+
+  // Spartan / Operator mindset
+  { text: "He who sweats more in training bleeds less in battle.", author: "Spartan Maxim" },
+  { text: "Forty minutes. No distractions. This is your only mission right now.", author: "Operator Mindset" },
+  { text: "Warriors don't count the reps after they feel the burn — that's when the real reps start.", author: "Operator Mindset" },
+  { text: "The work does not care how you feel today.", author: "Operator Mindset" },
+  { text: "There are no shortcuts to any place worth going.", author: "Operator Mindset" },
+  { text: "Every session you show up for builds the person you are becoming.", author: "Operator Mindset" },
+
+  // Mixed / other
+  { text: "That which does not kill us makes us stronger.", author: "Friedrich Nietzsche" },
+  { text: "Hard work beats talent when talent doesn't work hard.", author: "Tim Notke" },
+  { text: "The man who moves a mountain begins by carrying away small stones.", author: "Confucius" },
+  { text: "Fall seven times, stand up eight.", author: "Japanese Proverb" },
+  { text: "A smooth sea never made a skilled sailor.", author: "Franklin D. Roosevelt" },
+  { text: "Do not pray for an easy life. Pray for the strength to endure a difficult one.", author: "Bruce Lee" },
+  { text: "Absorb what is useful, discard what is not, add what is uniquely your own.", author: "Bruce Lee" },
+  { text: "Be water, my friend.", author: "Bruce Lee" },
+  { text: "Either you run the day, or the day runs you.", author: "Jim Rohn" },
+  { text: "Don't wish it were easier. Wish you were better.", author: "Jim Rohn" },
+  { text: "Champions aren't made in gyms. Champions are made from something they have deep inside them — a desire, a dream, a vision.", author: "Muhammad Ali" },
+  { text: "The fight is won or lost far away from witnesses — behind the lines, in the gym, out there on the road, long before I dance under those lights.", author: "Muhammad Ali" },
+  { text: "I am the greatest. I said that even before I knew I was.", author: "Muhammad Ali" },
+  { text: "The price of anything is the amount of life you exchange for it.", author: "Henry David Thoreau" },
+  { text: "Go confidently in the direction of your dreams. Live the life you have imagined.", author: "Henry David Thoreau" },
+  { text: "It's supposed to be hard. If it weren't hard, everyone would do it. The hard is what makes it great.", author: "A League of Their Own" },
+  { text: "The key is not the will to win. Everybody has that. It is the will to prepare to win that is important.", author: "Bobby Knight" },
+  { text: "Mastery is not a function of genius. It is a function of time and intense focus.", author: "Robert Greene" },
+  { text: "An investment in knowledge pays the best interest.", author: "Benjamin Franklin" },
+  { text: "Energy and persistence conquer all things.", author: "Benjamin Franklin" },
+];
+
+// ─────────────────────────────────────────────────────────
+//  MODES CONFIG
+// ─────────────────────────────────────────────────────────
+const MODES = {
+  sprint: {
+    duration:  40 * 60,
+    label:     '40-Minute Sprint',
+    colClass:  'col-sprint',
+    dotColor:  '#22c55e',
+    fillColor: '#22c55e',
+    startBg:   '#22c55e',
+  },
+  break: {
+    duration:  10 * 60,
+    label:     '10-Minute Break',
+    colClass:  'col-break',
+    dotColor:  '#f59e0b',
+    fillColor: '#f59e0b',
+    startBg:   '#f59e0b',
+  },
+  snack: {
+    duration:  5 * 60,
+    label:     '5-Min Exercise Snack',
+    colClass:  'col-snack',
+    dotColor:  '#ef4444',
+    fillColor: '#ef4444',
+    startBg:   '#ef4444',
+  },
+};
+
+// ─────────────────────────────────────────────────────────
+//  STATE
+// ─────────────────────────────────────────────────────────
+let mode          = 'sprint';
+let timeRemaining = MODES.sprint.duration;
+let isRunning     = false;
+let intervalId    = null;
+let audioCtx      = null;
+let quoteIdx      = 0;
+
+const STORAGE_KEY = 'opTimer__' + new Date().toDateString();
+
+let stats = { sprints: 0, sprintMinutes: 0, snacks: 0, breaks: 0, log: [] };
+
+// ─────────────────────────────────────────────────────────
+//  DOM REFS
+// ─────────────────────────────────────────────────────────
+const $display    = document.getElementById('timerDisplay');
+const $modeLabel  = document.getElementById('modeLabel');
+const $progress   = document.getElementById('progressFill');
+const $startBtn   = document.getElementById('startBtn');
+const $pauseBtn   = document.getElementById('pauseBtn');
+const $resetBtn   = document.getElementById('resetBtn');
+const $quoteText  = document.getElementById('quoteText');
+const $quoteAuth  = document.getElementById('quoteAuthor');
+const $logList    = document.getElementById('logList');
+const $modeBtns   = document.querySelectorAll('.mode-btn');
+
+// ─────────────────────────────────────────────────────────
+//  MODE SWITCHING
+// ─────────────────────────────────────────────────────────
+function setMode(newMode) {
+  if (isRunning) return;
+  mode          = newMode;
+  timeRemaining = MODES[newMode].duration;
+
+  $modeBtns.forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.mode === newMode);
+  });
+
+  const m = MODES[newMode];
+  $display.className = m.colClass;
+  $modeLabel.textContent = m.label;
+  $startBtn.style.background = m.startBg;
+  $progress.style.background = m.fillColor;
+
+  updateDisplay();
+  updateProgress();
+  newQuote();
+}
+
+$modeBtns.forEach(btn => {
+  btn.addEventListener('click', () => setMode(btn.dataset.mode));
+});
+
+// ─────────────────────────────────────────────────────────
+//  TIMER CONTROLS
+// ─────────────────────────────────────────────────────────
+function startTimer() {
+  if (timeRemaining <= 0 || isRunning) return;
+  isRunning = true;
+  $startBtn.disabled = true;
+  $pauseBtn.disabled = false;
+  $modeBtns.forEach(b => b.disabled = true);
+
+  intervalId = setInterval(() => {
+    timeRemaining--;
+    updateDisplay();
+    updateProgress();
+    if (timeRemaining <= 0) timerFinished();
+  }, 1000);
+}
+
+function pauseTimer() {
+  if (!isRunning) return;
+  isRunning = false;
+  clearInterval(intervalId);
+  $startBtn.disabled = false;
+  $pauseBtn.disabled = true;
+}
+
+function resetTimer() {
+  isRunning = false;
+  clearInterval(intervalId);
+  timeRemaining = MODES[mode].duration;
+
+  $display.className = MODES[mode].colClass;
+  $display.classList.remove('finished');
+  $startBtn.disabled  = false;
+  $pauseBtn.disabled  = true;
+  $modeBtns.forEach(b => b.disabled = false);
+
+  updateDisplay();
+  updateProgress();
+}
+
+function timerFinished() {
+  isRunning = false;
+  clearInterval(intervalId);
+  timeRemaining = 0;
+
+  updateDisplay();
+  updateProgress();
+
+  $display.classList.add('finished');
+  $startBtn.disabled  = false;
+  $pauseBtn.disabled  = true;
+  $modeBtns.forEach(b => b.disabled = false);
+
+  playAlert();
+  recordCompletion();
+  newQuote();
+
+  setTimeout(() => {
+    $display.classList.remove('finished');
+  }, 4000);
+}
+
+// ─────────────────────────────────────────────────────────
+//  DISPLAY
+// ─────────────────────────────────────────────────────────
+function updateDisplay() {
+  const m = Math.floor(timeRemaining / 60);
+  const s = timeRemaining % 60;
+  $display.textContent = String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
+}
+
+function updateProgress() {
+  const total   = MODES[mode].duration;
+  const pct     = total > 0 ? timeRemaining / total : 0;
+  $progress.style.transform = `scaleX(${pct})`;
+}
+
+// ─────────────────────────────────────────────────────────
+//  AUDIO  (Web Audio API — no external files)
+// ─────────────────────────────────────────────────────────
+function getAudioCtx() {
+  if (!audioCtx) {
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  }
+  return audioCtx;
+}
+
+function beep(ctx, freq, startTime, duration, vol = 0.35) {
+  const osc  = ctx.createOscillator();
+  const gain = ctx.createGain();
+  osc.connect(gain);
+  gain.connect(ctx.destination);
+  osc.type = 'sine';
+  osc.frequency.setValueAtTime(freq, startTime);
+  gain.gain.setValueAtTime(vol, startTime);
+  gain.gain.exponentialRampToValueAtTime(0.0001, startTime + duration);
+  osc.start(startTime);
+  osc.stop(startTime + duration + 0.05);
+}
+
+function playAlert() {
+  try {
+    const ctx = getAudioCtx();
+    const t   = ctx.currentTime;
+    // Three ascending tones
+    beep(ctx, 660, t + 0.00, 0.25);
+    beep(ctx, 880, t + 0.32, 0.25);
+    beep(ctx, 1100, t + 0.64, 0.55, 0.45);
+  } catch (e) {
+    console.warn('Audio unavailable:', e);
+  }
+}
+
+// Warm up AudioContext on first user interaction (required by browsers)
+document.addEventListener('click', () => { try { getAudioCtx(); } catch(e) {} }, { once: true });
+
+// ─────────────────────────────────────────────────────────
+//  STATS & LOG
+// ─────────────────────────────────────────────────────────
+function recordCompletion() {
+  const now     = new Date();
+  const timeStr = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+  if (mode === 'sprint') {
+    stats.sprints++;
+    stats.sprintMinutes += 40;
+    stats.log.unshift({ type: 'Sprint', time: timeStr, dur: '40 min', color: '#22c55e' });
+  } else if (mode === 'break') {
+    stats.breaks++;
+    stats.log.unshift({ type: 'Break', time: timeStr, dur: '10 min', color: '#f59e0b' });
+  } else if (mode === 'snack') {
+    stats.snacks++;
+    stats.log.unshift({ type: 'Exercise Snack', time: timeStr, dur: '5 min', color: '#ef4444' });
+  }
+
+  saveStats();
+  renderStats();
+  renderLog();
+}
+
+function renderStats() {
+  document.getElementById('statSprints').textContent = stats.sprints;
+  document.getElementById('statMinutes').textContent = stats.sprintMinutes;
+  document.getElementById('statSnacks').textContent  = stats.snacks;
+  document.getElementById('statBreaks').textContent  = stats.breaks;
+}
+
+function renderLog() {
+  if (!stats.log || stats.log.length === 0) {
+    $logList.innerHTML = '<li class="log-empty">No sessions completed yet.</li>';
+    return;
+  }
+  $logList.innerHTML = stats.log.map(e => `
+    <li class="log-item">
+      <span class="log-dot" style="background:${e.color}"></span>
+      <span class="log-type">${e.type} <span class="log-dur">(${e.dur})</span></span>
+      <span class="log-time">${e.time}</span>
+    </li>
+  `).join('');
+}
+
+function resetLog() {
+  if (!confirm('Reset today\'s log and stats?')) return;
+  stats = { sprints: 0, sprintMinutes: 0, snacks: 0, breaks: 0, log: [] };
+  saveStats();
+  renderStats();
+  renderLog();
+}
+
+document.getElementById('resetLogBtn').addEventListener('click', resetLog);
+
+// ─────────────────────────────────────────────────────────
+//  PERSISTENCE
+// ─────────────────────────────────────────────────────────
+function saveStats() {
+  // Prune any old keys to keep storage tidy
+  for (const key of Object.keys(localStorage)) {
+    if (key.startsWith('opTimer__') && key !== STORAGE_KEY) {
+      localStorage.removeItem(key);
+    }
+  }
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(stats));
+}
+
+function loadStats() {
+  const saved = localStorage.getItem(STORAGE_KEY);
+  if (saved) {
+    try { stats = JSON.parse(saved); } catch (e) {}
+  }
+  renderStats();
+  renderLog();
+}
+
+// ─────────────────────────────────────────────────────────
+//  QUOTES
+// ─────────────────────────────────────────────────────────
+function newQuote() {
+  let next;
+  do { next = Math.floor(Math.random() * QUOTES.length); } while (next === quoteIdx && QUOTES.length > 1);
+  quoteIdx = next;
+  $quoteText.textContent = '\u201C' + QUOTES[quoteIdx].text + '\u201D';
+  $quoteAuth.textContent = '\u2014 ' + QUOTES[quoteIdx].author;
+}
+
+// Rotate quote every 4 minutes
+setInterval(newQuote, 4 * 60 * 1000);
+
+// ─────────────────────────────────────────────────────────
+//  BUTTON WIRING
+// ─────────────────────────────────────────────────────────
+$startBtn.addEventListener('click', startTimer);
+$pauseBtn.addEventListener('click', pauseTimer);
+$resetBtn.addEventListener('click', resetTimer);
+
+// ─────────────────────────────────────────────────────────
+//  INIT
+// ─────────────────────────────────────────────────────────
+loadStats();
+newQuote();
+updateDisplay();
+updateProgress();
+</script>
+</body>
+</html>
