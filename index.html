@@ -166,6 +166,22 @@
     #resetBtn  { background: var(--surface); color: var(--text-dim); border: 1.5px solid #222; }
 
     /* ── QUOTE ────────────────────────────────────── */
+    /* Status / transition line */
+    .status-text {
+      height: 1.4rem;
+      font-size: 0.72rem;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      text-align: center;
+      margin-top: -20px;
+      margin-bottom: 20px;
+      transition: opacity 0.3s;
+    }
+    .status-text span {
+      color: var(--text-dim);
+    }
+
     .quote-box {
       max-width: 560px;
       width: 100%;
@@ -344,6 +360,8 @@
     <button class="ctrl-btn" id="pauseBtn" disabled>Pause</button>
     <button class="ctrl-btn" id="resetBtn">Reset</button>
   </div>
+
+  <div class="status-text" id="statusText"></div>
 
   <!-- QUOTE -->
   <div class="quote-box">
@@ -555,6 +573,9 @@ const MODES = {
 // ─────────────────────────────────────────────────────────
 //  STATE
 // ─────────────────────────────────────────────────────────
+// Sprint → Snack → Break → Sprint …
+const CYCLE = ['sprint', 'snack', 'break'];
+
 let mode            = 'sprint';
 let timeRemaining   = MODES.sprint.duration;
 let isRunning       = false;
@@ -563,6 +584,9 @@ let audioCtx        = null;
 // Wall-clock references — immune to tab throttling
 let startTimestamp  = null;   // Date.now() when timer was last (re)started
 let timeAtStart     = null;   // timeRemaining at that moment
+// Auto-advance transition
+let transitionId    = null;
+let countdownId     = null;
 let quoteIdx      = 0;
 
 const STORAGE_KEY = 'opTimer__' + new Date().toDateString();
@@ -586,7 +610,41 @@ const $modeBtns   = document.querySelectorAll('.mode-btn');
 // ─────────────────────────────────────────────────────────
 //  MODE SWITCHING
 // ─────────────────────────────────────────────────────────
+function nextCycleMode() {
+  const idx = CYCLE.indexOf(mode);
+  return CYCLE[(idx + 1) % CYCLE.length];
+}
+
+function cancelTransition() {
+  if (transitionId) { clearTimeout(transitionId);  transitionId = null; }
+  if (countdownId)  { clearInterval(countdownId);  countdownId  = null; }
+  const $s = document.getElementById('statusText');
+  if ($s) $s.textContent = '';
+}
+
+function scheduleNext() {
+  const next      = nextCycleMode();
+  const nextLabel = MODES[next].label;
+  const $s        = document.getElementById('statusText');
+  let secs        = 5;
+
+  function tick() {
+    if ($s) $s.innerHTML = `Next: <span>${nextLabel}</span> &mdash; starting in ${secs}s`;
+    secs--;
+  }
+  tick();
+  countdownId = setInterval(tick, 1000);
+
+  transitionId = setTimeout(() => {
+    cancelTransition();
+    setMode(next);
+    playChime();
+    startTimer();
+  }, 5000);
+}
+
 function setMode(newMode) {
+  cancelTransition();
   if (isRunning) return;
   mode          = newMode;
   timeRemaining = MODES[newMode].duration;
@@ -642,6 +700,7 @@ function pauseTimer() {
   timeRemaining  = Math.max(0, timeAtStart - elapsed);
   isRunning      = false;
   clearInterval(intervalId);
+  cancelTransition();
   $startBtn.disabled = false;
   $pauseBtn.disabled = true;
   updateDisplay();
@@ -651,6 +710,7 @@ function pauseTimer() {
 function resetTimer() {
   isRunning = false;
   clearInterval(intervalId);
+  cancelTransition();
   timeRemaining = MODES[mode].duration;
 
   $display.className = MODES[mode].colClass;
@@ -679,6 +739,7 @@ function timerFinished() {
   playAlert();
   recordCompletion();
   newQuote();
+  scheduleNext();
 
   setTimeout(() => {
     $display.classList.remove('finished');
@@ -727,10 +788,38 @@ function playAlert() {
   try {
     const ctx = getAudioCtx();
     const t   = ctx.currentTime;
-    // Three ascending tones
-    beep(ctx, 660, t + 0.00, 0.25);
-    beep(ctx, 880, t + 0.32, 0.25);
+    // Three ascending tones — signals completion
+    beep(ctx, 660,  t + 0.00, 0.25);
+    beep(ctx, 880,  t + 0.32, 0.25);
     beep(ctx, 1100, t + 0.64, 0.55, 0.45);
+  } catch (e) {
+    console.warn('Audio unavailable:', e);
+  }
+}
+
+function playChime() {
+  // Soft major-chord arpeggio — signals mode transition / new session start
+  try {
+    const ctx = getAudioCtx();
+    const t   = ctx.currentTime;
+    // Use a triangle wave for a warmer, gentler tone
+    function chimeNote(freq, when, dur, vol = 0.28) {
+      const osc  = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(freq, when);
+      gain.gain.setValueAtTime(vol, when);
+      gain.gain.exponentialRampToValueAtTime(0.0001, when + dur);
+      osc.start(when);
+      osc.stop(when + dur + 0.05);
+    }
+    // C5 – E5 – G5 – C6 rising arpeggio
+    chimeNote(523, t + 0.00, 0.5);
+    chimeNote(659, t + 0.18, 0.5);
+    chimeNote(784, t + 0.36, 0.5);
+    chimeNote(1047, t + 0.54, 0.8, 0.22);
   } catch (e) {
     console.warn('Audio unavailable:', e);
   }
